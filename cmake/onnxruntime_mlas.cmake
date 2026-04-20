@@ -34,6 +34,7 @@ onnxruntime_add_static_library(onnxruntime_mlas
   ${MLAS_SRC_DIR}/dequantize.cpp
   ${MLAS_SRC_DIR}/quantize.cpp
   ${MLAS_SRC_DIR}/qgemm_kernel_default.cpp
+  ${MLAS_SRC_DIR}/qgemm_kernel_rvv.cpp
   ${MLAS_SRC_DIR}/qladd.cpp
   ${MLAS_SRC_DIR}/qlmul.cpp
   ${MLAS_SRC_DIR}/qpostprocessor.cpp

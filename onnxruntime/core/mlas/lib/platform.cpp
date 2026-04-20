@@ -17,6 +17,9 @@ Abstract:
 
 #include "mlasi.h"
 
+#include <cstdlib>
+#include <cstring>
+
 #if defined(USE_KLEIDIAI) && !defined(_MSC_VER)
 #include "kleidiai/mlasi_kleidiai.h"
 #endif
@@ -224,6 +227,21 @@ MLAS_INTERNAL_DATA MLAS_DECLSPEC_ALIGN(const uint32_t MlasMaskMoveTableLasx[16],
 };
 
 #endif
+#if defined(MLAS_TARGET_RISCV64)
+static size_t MLASCALL
+MlasGemmFloatKernelRiscvDefault(
+    const float* A, const float* B, float* C,
+    size_t CountK, size_t CountM, size_t CountN,
+    size_t lda, size_t ldc, float alpha, bool ZeroMode)
+{
+    if (ZeroMode) {
+        return MlasSgemmKernelZero(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, true);
+    } else {
+        return MlasSgemmKernelAdd(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, false);
+    }
+}
+#endif // MLAS_TARGET_RISCV64
+
 MLAS_PLATFORM::MLAS_PLATFORM(
     void
     )
@@ -717,6 +735,19 @@ Return Value:
 
 #endif // MLAS_TARGET_LARCH64
 
+#if defined(MLAS_TARGET_RISCV64)
+    // RISC-V 64: register scalar default kernels. External RVV kernels may be
+    // injected at runtime via MlasRiscvSetDispatch() (see bottom of this file).
+    this->GemmFloatKernel = MlasGemmFloatKernelRiscvDefault;
+    this->GemmU8S8Dispatch = &MlasGemmQuantDispatchDefault;
+    this->GemmU8U8Dispatch = &MlasGemmQuantDispatchDefault;
+    this->GemmS8S8Dispatch = &MlasGemmQuantDispatchDefault;
+    this->ReduceMaximumF32Kernel = MlasReduceMaximumF32Kernel;
+    this->ComputeSumExpF32Kernel = MlasComputeSumExpF32Kernel;
+    this->ComputeSoftmaxOutputF32Kernel = MlasComputeSoftmaxOutputF32Kernel;
+    this->ComputeLogSoftmaxOutputF32Kernel = MlasComputeLogSoftmaxOutputF32Kernel;
+#endif // MLAS_TARGET_RISCV64
+
 }
 
 size_t
@@ -767,4 +798,24 @@ thread_local size_t ThreadedBufSize = 0;
 thread_local std::unique_ptr<uint8_t, decltype(&_aligned_free)> ThreadedBufHolder(nullptr, &_aligned_free);
 #else
 thread_local std::unique_ptr<uint8_t, decltype(&free)> ThreadedBufHolder(nullptr, &free);
+#endif
+
+#if defined(MLAS_TARGET_RISCV64)
+#include "mlas_riscv.h"
+extern "C" {
+__attribute__((visibility("default")))
+int MlasRiscvSetDispatch(const struct MLAS_RISCV_DISPATCH* D) {
+    if (!D || D->Version != MLAS_RISCV_DISPATCH_VERSION) return -1;
+    auto& P = GetMlasPlatform();
+    if (D->GemmFloatKernel) P.GemmFloatKernel = (MLAS_GEMM_FLOAT_KERNEL*)D->GemmFloatKernel;
+    if (D->GemmU8S8Dispatch) P.GemmU8S8Dispatch = (const MLAS_GEMM_QUANT_DISPATCH*)D->GemmU8S8Dispatch;
+    if (D->GemmS8S8Dispatch) P.GemmS8S8Dispatch = (const MLAS_GEMM_QUANT_DISPATCH*)D->GemmS8S8Dispatch;
+    if (D->GemmU8U8Dispatch) P.GemmU8U8Dispatch = (const MLAS_GEMM_QUANT_DISPATCH*)D->GemmU8U8Dispatch;
+    if (D->ReduceMaximumF32Kernel) P.ReduceMaximumF32Kernel = (MLAS_REDUCE_MAXIMUM_FLOAT_KERNEL*)D->ReduceMaximumF32Kernel;
+    if (D->ComputeSumExpF32Kernel) P.ComputeSumExpF32Kernel = (MLAS_COMPUTE_SUMEXP_FLOAT_KERNEL*)D->ComputeSumExpF32Kernel;
+    if (D->ComputeSoftmaxOutputF32Kernel) P.ComputeSoftmaxOutputF32Kernel = (MLAS_COMPUTE_SOFTMAX_OUTPUT_FLOAT_KERNEL*)D->ComputeSoftmaxOutputF32Kernel;
+    if (D->ComputeLogSoftmaxOutputF32Kernel) P.ComputeLogSoftmaxOutputF32Kernel = (MLAS_COMPUTE_LOGSOFTMAX_OUTPUT_FLOAT_KERNEL*)D->ComputeLogSoftmaxOutputF32Kernel;
+    return 0;
+}
+} // extern "C"
 #endif
