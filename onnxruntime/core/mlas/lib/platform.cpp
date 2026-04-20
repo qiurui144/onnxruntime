@@ -736,12 +736,38 @@ Return Value:
 #endif // MLAS_TARGET_LARCH64
 
 #if defined(MLAS_TARGET_RISCV64)
-    // RISC-V 64: register scalar default kernels. External RVV kernels may be
-    // injected at runtime via MlasRiscvSetDispatch() (see bottom of this file).
+    // RISC-V 64 with SpacemiT IME private extension.
+    // ⚠️  NOT UPSTREAM — this branch contains vmadot private-instruction path.
+    //
+    // INT8 dispatch priority: IME (vmadot) > RVV (standard) > scalar default.
+    // Override via MLAS_INT8_KERNEL=ime|rvv|default at runtime.
     this->GemmFloatKernel = MlasGemmFloatKernelRiscvDefault;
-    this->GemmU8S8Dispatch = &MlasGemmQuantDispatchDefault;
-    this->GemmU8U8Dispatch = &MlasGemmQuantDispatchDefault;
-    this->GemmS8S8Dispatch = &MlasGemmQuantDispatchDefault;
+    {
+        // Both pointers are extern; weakly linked so missing variant => nullptr.
+        extern const MLAS_GEMM_QUANT_DISPATCH* MlasGemmU8S8DispatchRvvPtr __attribute__((weak));
+        extern const MLAS_GEMM_QUANT_DISPATCH* MlasGemmU8S8DispatchImePtr __attribute__((weak));
+
+        const char* sel = getenv("MLAS_INT8_KERNEL");
+        const MLAS_GEMM_QUANT_DISPATCH* chosen = &MlasGemmQuantDispatchDefault;
+
+        if (sel && strcmp(sel, "ime") == 0 && &MlasGemmU8S8DispatchImePtr && MlasGemmU8S8DispatchImePtr) {
+            chosen = MlasGemmU8S8DispatchImePtr;
+        } else if (sel && strcmp(sel, "rvv") == 0 && &MlasGemmU8S8DispatchRvvPtr && MlasGemmU8S8DispatchRvvPtr) {
+            chosen = MlasGemmU8S8DispatchRvvPtr;
+        } else if (sel && strcmp(sel, "default") == 0) {
+            // chosen stays as default
+        } else {
+            // Auto: IME > RVV > default
+            if (&MlasGemmU8S8DispatchImePtr && MlasGemmU8S8DispatchImePtr) {
+                chosen = MlasGemmU8S8DispatchImePtr;
+            } else if (&MlasGemmU8S8DispatchRvvPtr && MlasGemmU8S8DispatchRvvPtr) {
+                chosen = MlasGemmU8S8DispatchRvvPtr;
+            }
+        }
+        this->GemmU8S8Dispatch = chosen;
+        this->GemmU8U8Dispatch = chosen;
+        this->GemmS8S8Dispatch = chosen;
+    }
     this->ReduceMaximumF32Kernel = MlasReduceMaximumF32Kernel;
     this->ComputeSumExpF32Kernel = MlasComputeSumExpF32Kernel;
     this->ComputeSoftmaxOutputF32Kernel = MlasComputeSoftmaxOutputF32Kernel;
