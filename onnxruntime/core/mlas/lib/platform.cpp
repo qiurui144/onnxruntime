@@ -736,12 +736,22 @@ Return Value:
 #endif // MLAS_TARGET_LARCH64
 
 #if defined(MLAS_TARGET_RISCV64)
-    // RISC-V 64: register scalar default kernels. External RVV kernels may be
-    // injected at runtime via MlasRiscvSetDispatch() (see bottom of this file).
+    // RISC-V 64: use scalar SGEMM default, built-in RVV INT8 GEMM,
+    // and scalar-default Softmax/Activations. External libraries may
+    // override any of these via MlasRiscvSetDispatch() at runtime.
     this->GemmFloatKernel = MlasGemmFloatKernelRiscvDefault;
-    this->GemmU8S8Dispatch = &MlasGemmQuantDispatchDefault;
-    this->GemmU8U8Dispatch = &MlasGemmQuantDispatchDefault;
-    this->GemmS8S8Dispatch = &MlasGemmQuantDispatchDefault;
+    {
+        // qgemm_kernel_rvv.cpp defines MlasGemmU8S8DispatchRvvPtr (standard RVV).
+        // If unavailable (e.g. embedded target without V extension build), fall
+        // back to scalar default.
+        extern const MLAS_GEMM_QUANT_DISPATCH* MlasGemmU8S8DispatchRvvPtr;
+        const MLAS_GEMM_QUANT_DISPATCH* rvv =
+            MlasGemmU8S8DispatchRvvPtr ? MlasGemmU8S8DispatchRvvPtr
+                                       : &MlasGemmQuantDispatchDefault;
+        this->GemmU8S8Dispatch = rvv;
+        this->GemmU8U8Dispatch = rvv;
+        this->GemmS8S8Dispatch = rvv;
+    }
     this->ReduceMaximumF32Kernel = MlasReduceMaximumF32Kernel;
     this->ComputeSumExpF32Kernel = MlasComputeSumExpF32Kernel;
     this->ComputeSoftmaxOutputF32Kernel = MlasComputeSoftmaxOutputF32Kernel;
