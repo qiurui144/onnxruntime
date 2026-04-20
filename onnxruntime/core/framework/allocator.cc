@@ -13,6 +13,10 @@
 #include <cstdlib>
 #include <sstream>
 
+#ifdef __linux__
+#include <sys/mman.h>  // madvise, MADV_HUGEPAGE
+#endif
+
 #if defined(USE_MIMALLOC)
 #include <mimalloc.h>
 #endif
@@ -136,7 +140,24 @@ void* AllocatorDefaultAllocAligned(size_t size, size_t alignment) {
 
   size += MLAS_SYMM_QGEMM_BUF_OVERRUN;
 
-  return ::operator new(size, std::align_val_t{alignment});
+  void* p = ::operator new(size, std::align_val_t{alignment});
+
+#ifdef __linux__
+  // Hint kernel to back large allocations with transparent hugepages (2MB).
+  // Reduces TLB pressure for model weight tensors.
+  // madvise requires page-aligned address — round up to page boundary.
+  if (p && size >= (2u << 20)) {
+    const size_t page_size = 4096;
+    uintptr_t addr = reinterpret_cast<uintptr_t>(p);
+    uintptr_t aligned_addr = (addr + page_size - 1) & ~(page_size - 1);
+    size_t offset = aligned_addr - addr;
+    if (size > offset + page_size) {
+      madvise(reinterpret_cast<void*>(aligned_addr), size - offset, MADV_HUGEPAGE);
+    }
+  }
+#endif
+
+  return p;
 }
 
 void AllocatorDefaultFreeAligned(void* p, size_t alignment) {
