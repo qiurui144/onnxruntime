@@ -435,10 +435,18 @@ class PosixEnv : public Env {
     const size_t mapped_length = length + static_cast<size_t>(offset_to_page);
     const FileOffsetType mapped_offset = offset - offset_to_page;
     void* const mapped_base =
-        mmap(nullptr, mapped_length, PROT_READ | PROT_WRITE, MAP_PRIVATE, file_descriptor.Get(), mapped_offset);
+        mmap(nullptr, mapped_length, PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_POPULATE,  // pre-fault pages at mmap time
+             file_descriptor.Get(), mapped_offset);
 
     if (mapped_base == MAP_FAILED) {
       return ReportSystemError("mmap", file_path);
+    }
+
+    // Hint kernel for sequential readahead and transparent hugepage promotion
+    madvise(mapped_base, mapped_length, MADV_SEQUENTIAL);
+    if (mapped_length >= (2u << 20)) {
+      madvise(mapped_base, mapped_length, MADV_HUGEPAGE);
     }
 
     mapped_memory =
