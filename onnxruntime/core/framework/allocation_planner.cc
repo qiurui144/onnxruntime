@@ -1501,7 +1501,14 @@ class PlannerImpl {
     SequentialPlannerContext no_mem_reuse_context(ExecutionMode::ORT_PARALLEL, ExecutionOrder::DEFAULT, false);
     if (!IsSingleStream()) {
       // use parallel execution context to generate a baseline first (no memory sharing)
+#if defined(__GNUC__) && __GNUC__ >= 12
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdangling-pointer"
+#endif
       context_ = gsl::not_null<const ISequentialPlannerContext*>(&no_mem_reuse_context);
+#if defined(__GNUC__) && __GNUC__ >= 12
+#pragma GCC diagnostic pop
+#endif
     }
 #if !defined(ORT_MINIMAL_BUILD) && defined(ORT_MEMORY_PROFILE)
     // copy the use counts to a vector, before computing reuse
